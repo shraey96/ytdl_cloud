@@ -6,8 +6,9 @@ const youtubedl = require('youtube-dl')
 const zipFolder = require('zip-folder')
 const exec = require('child_process').exec
 const NodeID3 = require('node-id3')
-const rp = require('request-promise');
-
+const request = require('request')
+const rp = require('request-promise')
+const btoa = require('btoa')
 const Koa = require('koa')
 const KoaRouter = require('koa-router')
 const bodyParser = require('koa-bodyparser')
@@ -19,6 +20,11 @@ app.use(bodyParser())
 app.use(router.routes()).use(router.allowedMethods())
 
 const queue = {}
+
+let spotifyClientId = '28bc6211497a4a93a51866c234ed3e40'
+let spotifyCleintSecret = 'b2bcec9b2d0047b5b83df0d2ee04e688'
+let spotifyAccessToken = `BQD0O5fkAZX4SiKqD9qORIf2SHBQ87XQwHR9Ai6zWmTBOzprOpnx9BiaW8_OjyAmdI3sFuLp0G5-7TzPr32MqZYvUCLtpto6Y4-vStNvse-8bkjJsXLJADdE78uHqo5OJn1shjIH280`
+let base64Spotify = btoa(`${spotifyClientId}:${spotifyCleintSecret}`)
 
 router.get(`/ping`, ctx => {
     ctx.body = "pong"
@@ -264,46 +270,90 @@ const downloadAudio = async (urls, taskKey, format) => {
 }
 
 
-const testFolder = './downloads/'
+const testFolder = './downloads'
+
+const titleFilters = ['lyrics', 'lyric', 'by', 'video', 'official', 'hd', 'dirty', 'with', 'lyrics', 'feat', 'original', 'mix',
+    'www', 'com', 'mp3', 'audio', 'remixed', 'remix', 'full', 'version', 'music', 'hq', 'uploaded', 'explicit']
 
 // id3 node 
 fs.readdir(testFolder, (err, files) => {
     files.forEach(file => {
-        console.log(file)
-        const fileWithoutExt = (file.split('.').slice(0, -1).join('.'))
 
-        var options = {
-            uri: `https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=crop&w=200&q=80`,
-        }
+        let clearedFile = file
 
-        rp(options)
-            .then(function (imageBuffer) {
-                console.log('got')
-                const data = {
-                    artist: file,
-                    title: fileWithoutExt,
-                    APIC: `${testFolder}/a.jpg`
-                }
-                NodeID3.update(data, `${testFolder}/${file}`, function (err, buffer) {
-                    if (err) {
-                        console.log(11, err)
-                    } else {
-                        console.log('done')
-                    }
-                    NodeID3.read(`${testFolder}/${file}`, function (err, tags) {
-                        console.log(111, err)
-                        console.log(111, tags)
-                    })
-                })
-            })
-            .catch(function (err) {
-                // API call failed...
-            });
+        titleFilters.forEach(f => {
+            clearedFile.replace(f, '')
+        })
 
+        clearedFile = clearedFile.replace(/\s{2,}/g, ' ')
+        console.log(clearedFile)
+        const fileWithoutExt = (clearedFile.split('.').slice(0, -1).join('.'))
+
+        const uri = `https://images.unsplash.com/photo-1555298472-8c43a95ddb8f?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=crop&w=400&h=400&q=80`
+
+        // request({ uri, encoding: null }, (err, response, body) => {
+        //     const data = {
+        //         artist: file,
+        //         title: fileWithoutExt,
+        //         APIC: body
+        //     }
+        //     NodeID3.update(data, `${testFolder}/${file}`, function (err, buffer) {
+        //         if (err) {
+        //             console.log(11, err)
+        //         } else {
+        //             console.log('done')
+        //         }
+        //     })
+        // })
 
     })
 })
 
+
+
+
+
+const getMetaInfo = trackName => {
+    const options = {
+        uri: `https://api.spotify.com/v1/search?q=${trackName}&type=track&limit=5`,
+        headers: {
+            'Authorization': `Bearer ${spotifyAccessToken}`
+        }
+    }
+
+    return rp(options)
+        .then(response => response)
+        .catch(err => {
+            if (err && err.statusCode === 401) {
+                return getSpotifyToken()
+                    .then(() => getMetaInfo(trackName))
+            }
+        })
+}
+
+const getSpotifyToken = () => {
+    const options = {
+        method: 'POST',
+        uri: `https://accounts.spotify.com/api/token`,
+        form: {
+            'grant_type': 'client_credentials'
+        },
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Authorization': `Basic ${base64Spotify}`
+        }
+    }
+    return rp(options)
+        .then(response => {
+            spotifyAccessToken = JSON.parse(response).access_token
+        })
+        .catch(err => {
+            console.log('spotify auth error: ', err)
+        })
+}
+
+getMetaInfo(`Don't let me down`)
+    .then(response => console.log(response))
 
 app.listen(3003, () => {
     console.log('server running on port 3003')

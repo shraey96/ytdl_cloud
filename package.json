@@ -9,6 +9,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "btoa": "^1.2.1",
     "fluent-ffmpeg": "^2.1.2",
     "koa": "^2.7.0",
     "koa-bodyparser": "^4.2.1",
