@@ -6,7 +6,7 @@ const youtubedl = require('youtube-dl')
 const zipFolder = require('zip-folder')
 const exec = require('child_process').exec
 const NodeID3 = require('node-id3')
-const request = require('request')
+
 const rp = require('request-promise')
 const btoa = require('btoa')
 const Koa = require('koa')
@@ -232,7 +232,7 @@ const downloadAudio = async (urls, taskKey, format) => {
                 .audioBitrate((audioFormats[format] && audioFormats[format].audioBitrate) || 128)
                 .save(`${downloadDirectory}/${url.title}.${audioFormats[format] ? format : 'mp3'}`)
                 .on('progress', p => {
-                    console.log('ffmpeg progress: ', p)
+                    console.log(`ffmpeg progress for ${url.title}: `, p)
                 })
                 .on('end', () => {
                     console.log('done')
@@ -243,16 +243,20 @@ const downloadAudio = async (urls, taskKey, format) => {
     })
 
     Promise.all(audioListDownloads)
-        .then(() => {
+        .then(async () => {
+
+            await setMetaInfo(downloadDirectory)
+
+            console.log(99, 'donee', 99)
 
             if (urls.length === 1) {
                 queue[taskKey] = { status: 'completed', progress: 100, downloadLink: downloadDirectory }
             } else {
                 zipFolder(downloadDirectory, `${downloadDirectory}.zip`, function (err) {
                     if (err) {
-                        console.log('error creating zip', err);
+                        console.log('error creating zip', err)
                     } else {
-                        console.log('created zip successfully!');
+                        console.log('created zip successfully!')
                         exec(`rm -Rf ${downloadDirectory}`, function (error) {
                             if (error) {
                                 console.log('error deleting directory: ', error)
@@ -263,54 +267,73 @@ const downloadAudio = async (urls, taskKey, format) => {
                         })
                     }
                 })
-
             }
+
         })
 
 }
 
-
-const testFolder = './downloads'
-
 const titleFilters = ['lyrics', 'lyric', 'by', 'video', 'official', 'hd', 'dirty', 'with', 'lyrics', 'feat', 'original', 'mix',
     'www', 'com', 'mp3', 'audio', 'remixed', 'remix', 'full', 'version', 'music', 'hq', 'uploaded', 'explicit']
 
-// id3 node 
-fs.readdir(testFolder, (err, files) => {
-    files.forEach(file => {
 
-        let clearedFile = file
+const setMetaInfo = (folder, trackName) => {
+    fs.readdir(folder, (err, files) => {
 
-        titleFilters.forEach(f => {
-            clearedFile.replace(f, '')
+        const metaPromises = files.map(file => {
+
+            let clearedFileTitle = file.replace(/\s{2,}/g, ' ').split('.').slice(0, -1).join('.').toLowerCase().replace(/[^\w\s]/g, '')
+
+            titleFilters.forEach(f => {
+                clearedFileTitle = clearedFileTitle.replace(f, '')
+            })
+
+            return getMetaInfo(clearedFileTitle)
+                .then(response => {
+                    if (response.tracks.items.length === 0) {
+                        return true
+                    }
+
+                    const firstTrackItem = response.tracks.items[0]
+
+                    const options = {
+                        uri: firstTrackItem.album.images[0].url,
+                        encoding: null
+                    }
+
+                    return rp(options)
+                        .then(body => {
+                            console.log('got body')
+                            const data = {
+                                artist: firstTrackItem.album.artists[0].name,
+                                album: firstTrackItem.album.name,
+                                title: clearedFileTitle,
+                                APIC: body
+                            }
+                            NodeID3.update(data, `${folder}/${file}`, function (err, buffer) {
+                                if (err) {
+                                    console.log(11, err)
+                                    return err
+                                }
+                                return true
+                            })
+                        })
+
+
+                })
+
         })
 
-        clearedFile = clearedFile.replace(/\s{2,}/g, ' ')
-        console.log(clearedFile)
-        const fileWithoutExt = (clearedFile.split('.').slice(0, -1).join('.'))
-
-        const uri = `https://images.unsplash.com/photo-1555298472-8c43a95ddb8f?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=crop&w=400&h=400&q=80`
-
-        // request({ uri, encoding: null }, (err, response, body) => {
-        //     const data = {
-        //         artist: file,
-        //         title: fileWithoutExt,
-        //         APIC: body
-        //     }
-        //     NodeID3.update(data, `${testFolder}/${file}`, function (err, buffer) {
-        //         if (err) {
-        //             console.log(11, err)
-        //         } else {
-        //             console.log('done')
-        //         }
-        //     })
-        // })
+        return Promise.all(metaPromises)
+            .then(response => {
+                console.log('done')
+            })
+            .catch(err => {
+                console.log(err)
+            })
 
     })
-})
-
-
-
+}
 
 
 const getMetaInfo = trackName => {
@@ -318,7 +341,8 @@ const getMetaInfo = trackName => {
         uri: `https://api.spotify.com/v1/search?q=${trackName}&type=track&limit=5`,
         headers: {
             'Authorization': `Bearer ${spotifyAccessToken}`
-        }
+        },
+        json: true
     }
 
     return rp(options)
@@ -341,19 +365,18 @@ const getSpotifyToken = () => {
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
             'Authorization': `Basic ${base64Spotify}`
-        }
+        },
+        json: true
     }
     return rp(options)
         .then(response => {
-            spotifyAccessToken = JSON.parse(response).access_token
+            spotifyAccessToken = response.access_token
         })
         .catch(err => {
             console.log('spotify auth error: ', err)
         })
 }
 
-getMetaInfo(`Don't let me down`)
-    .then(response => console.log(response))
 
 app.listen(3003, () => {
     console.log('server running on port 3003')
