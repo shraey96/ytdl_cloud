@@ -113,11 +113,11 @@ router.post(`/tasks`, ctx => {
 
     const taskKey = `${Math.floor(Math.random() * 1e15)}_${(new Date().getTime())}`
 
-    // downloadVideo(urls[0], taskKey, format)
+    downloadVideo(urls[0], taskKey, format)
 
     queue[taskKey] = { status: 'initialized', progress: 0 }
 
-    downloadAudio(urls, taskKey, format)
+    // downloadAudio(urls, taskKey, format)
 
     return ctx.body = { taskId: taskKey, status: queue[taskKey] }
 })
@@ -145,37 +145,72 @@ const downloadVideo = (url, taskKey, format) => {
 
     console.log((videoFormats[format]), url)
 
-    let downloadDirectory = './downloads'
-
     const audioOutput = path.resolve(__dirname, `sound_${taskKey}.m4a`)
     const mainOutput = path.resolve(__dirname, `output_${taskKey}.mp4`)
+    console.log(url.link)
 
-    const audio = youtubedl(url, [`--format=m4a/webm`])
-        .pipe(fs.createWriteStream(audioOutput))
-    audio.on('end', () => {
+
+    var video = youtubedl('http://www.youtube.com/watch?v=90AiXO1pAiA',
+        // Optional arguments passed to youtube-dl.
+        ['--format=18'],
+        // Additional options can be given for calling `child_process.execFile()`.
+        { cwd: __dirname });
+
+    // Will be called when the download starts.
+    video.on('info', function (info) {
+        console.log('Download started');
+        console.log('filename: ' + info._filename);
+        console.log('size: ' + info.size);
+    });
+
+    video.pipe(fs.createWriteStream('myvideo.mp4'))
+
+    video.on('end', () => {
         console.log('ended dl')
-        ffmpeg()
-            .input(youtubedl(url, [`--format=${(videoFormats[format] && videoFormats[format].itag) || 135}`, '--format=bestvideo']))
-            .videoCodec('copy')
-            .input(audioOutput)
-            .audioCodec('copy')
-            .save(mainOutput)
-            .on('error', console.error)
-            .on('progress', progress => {
-                process.stdout.cursorTo(0);
-                process.stdout.clearLine(1);
-                process.stdout.write(progress.timemark);
-                // console.log(progress)
-            }).on('end', () => {
-                console.log('ended ffmpeg')
-                fs.unlink(audioOutput, err => {
-                    if (err) console.error(err);
-                    else console.log('\nfinished downloading');
-                    queue[taskKey] = { status: 'finished' }
-                    console.log(queue)
-                })
-            })
     })
+    video.on('complete', function complete(info) {
+        console.log('filename: ' + info._filename + ' downloaded.');
+    })
+
+    // youtubedl(url.link, [`--format=136`])
+    //     .on('info', (info) => {
+    //         console.log(11, info)
+    //     })
+    //     .pipe(fs.createWriteStream(audioOutput))
+    //     .on('end', () => {
+    //         console.log('ended dl')
+    //     }).on('complete', function complete(info) {
+    //         console.log('filename: ' + info._filename + ' downloaded.');
+    //     })
+
+    // youtubedl(url.link, [`--format=m4a`])
+    //     .pipe(fs.createWriteStream(audioOutput))
+    //     .on('end', () => {
+    //         console.log('ended dl')
+    //         ffmpeg()
+    //             .input(youtubedl(url.link, [`--format=${(videoFormats[format] && videoFormats[format].itag) || 135}`, '--format=bestvideo']))
+    //             .videoCodec('copy')
+    //             .input(audioOutput)
+    //             .audioCodec('copy')
+    //             .save(mainOutput)
+    //             .on('error', console.error)
+    //             .on('progress', progress => {
+    //                 process.stdout.cursorTo(0);
+    //                 process.stdout.clearLine(1);
+    //                 process.stdout.write(progress.timemark);
+    //                 // console.log(progress)
+    //             }).on('end', () => {
+    //                 console.log('ended ffmpeg')
+    //                 fs.unlink(audioOutput, err => {
+    //                     if (err) console.error(err);
+    //                     else console.log('\nfinished downloading');
+    //                     queue[taskKey] = { status: 'finished' }
+    //                     console.log(queue)
+    //                 })
+    //             })
+    //     }).on('complete', function complete(info) {
+    //         console.log('filename: ' + info._filename + ' already downloaded.');
+    //     })
 
     // const video = youtubedl(url, [`--format=${(videoFormats[format] && videoFormats[format].itag) || 135}`, '--format=bestvideo'])
 
@@ -185,7 +220,6 @@ const downloadVideo = (url, taskKey, format) => {
     //     } else {
     //         console.log('folder: ', taskKey, ' createded successfully')
     //     }
-
     // })
 
 }
@@ -243,31 +277,30 @@ const downloadAudio = async (urls, taskKey, format) => {
     })
 
     Promise.all(audioListDownloads)
-        .then(async () => {
+        .then(() => {
 
-            await setMetaInfo(downloadDirectory)
+            setMetaInfo(downloadDirectory)
 
-            console.log(99, 'donee', 99)
 
-            if (urls.length === 1) {
-                queue[taskKey] = { status: 'completed', progress: 100, downloadLink: downloadDirectory }
-            } else {
-                zipFolder(downloadDirectory, `${downloadDirectory}.zip`, function (err) {
-                    if (err) {
-                        console.log('error creating zip', err)
-                    } else {
-                        console.log('created zip successfully!')
-                        exec(`rm -Rf ${downloadDirectory}`, function (error) {
-                            if (error) {
-                                console.log('error deleting directory: ', error)
-                            } else {
-                                console.log('deleted directory successfully!')
-                                queue[taskKey] = { status: 'completed', progress: 100, downloadLink: `${downloadDirectory}.zip` }
-                            }
-                        })
-                    }
-                })
-            }
+            // if (urls.length === 1) {
+            //     queue[taskKey] = { status: 'completed', progress: 100, downloadLink: downloadDirectory }
+            // } else {
+            //     zipFolder(downloadDirectory, `${downloadDirectory}.zip`, function (err) {
+            //         if (err) {
+            //             console.log('error creating zip', err)
+            //         } else {
+            //             console.log('created zip successfully!')
+            //             exec(`rm -Rf ${downloadDirectory}`, function (error) {
+            //                 if (error) {
+            //                     console.log('error deleting directory: ', error)
+            //                 } else {
+            //                     console.log('deleted directory successfully!')
+            //                     queue[taskKey] = { status: 'completed', progress: 100, downloadLink: `${downloadDirectory}.zip` }
+            //                 }
+            //             })
+            //         }
+            //     })
+            // }
 
         })
 
@@ -278,16 +311,19 @@ const titleFilters = ['lyrics', 'lyric', 'by', 'video', 'official', 'hd', 'dirty
 
 
 const setMetaInfo = (folder, trackName) => {
-    fs.readdir(folder, (err, files) => {
+    return fs.readdir(folder, (err, files) => {
 
         const metaPromises = files.map(file => {
 
-            let clearedFileTitle = file.replace(/\s{2,}/g, ' ').split('.').slice(0, -1).join('.').toLowerCase().replace(/[^\w\s]/g, '')
+            // let clearedFileTitle = file.replace(/\s{2,}/g, ' ').split('.').slice(0, -1).join('.').toLowerCase()
+
+            let clearedFileTitle = file.toLowerCase()
 
             titleFilters.forEach(f => {
                 clearedFileTitle = clearedFileTitle.replace(f, '')
             })
-
+            clearedFileTitle = clearedFileTitle.replace(/\s{2,}/g, ' ')
+            console.log(clearedFileTitle)
             return getMetaInfo(clearedFileTitle)
                 .then(response => {
                     if (response.tracks.items.length === 0) {
