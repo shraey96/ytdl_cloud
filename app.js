@@ -113,11 +113,11 @@ router.post(`/tasks`, ctx => {
 
     const taskKey = `${Math.floor(Math.random() * 1e15)}_${(new Date().getTime())}`
 
-    downloadVideo(urls[0], taskKey, format)
+    // downloadVideo(urls[0], taskKey, format)
 
     queue[taskKey] = { status: 'initialized', progress: 0 }
 
-    // downloadAudio(urls, taskKey, format)
+    downloadAudio(urls, taskKey, format)
 
     return ctx.body = { taskId: taskKey, status: queue[taskKey] }
 })
@@ -306,8 +306,8 @@ const downloadAudio = async (urls, taskKey, format) => {
 
 }
 
-const titleFilters = ['lyrics', 'lyric', 'by', 'video', 'official', 'hd', 'dirty', 'with', 'lyrics', 'feat', 'original', 'mix',
-    'www', 'com', 'mp3', 'audio', 'remixed', 'remix', 'full', 'version', 'music', 'hq', 'uploaded', 'explicit']
+const titleFilters = ['lyrics', 'lyric', 'by', 'video', 'official', 'hd', 'dirty', 'with', 'lyrics', 'feat', 'original', 'remix',
+    'www', 'com', 'mp3', 'audio', 'remixed', 'mix', 'full', 'version', 'music', 'hq', 'uploaded', 'explicit', '(', ')', ',', '_', '-', '.']
 
 
 const setMetaInfo = (folder, trackName) => {
