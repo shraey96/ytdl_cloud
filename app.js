@@ -6,8 +6,9 @@ const youtubedl = require('youtube-dl')
 const zipFolder = require('zip-folder')
 const exec = require('child_process').exec
 const NodeID3 = require('node-id3')
-const rp = require('request-promise');
 
+const rp = require('request-promise')
+const btoa = require('btoa')
 const Koa = require('koa')
 const KoaRouter = require('koa-router')
 const bodyParser = require('koa-bodyparser')
@@ -60,6 +61,11 @@ const topicName = 'projects/ytdl-playlist-239115/topics/download_tasks'
 // })
 
 const queue = {}
+
+let spotifyClientId = '28bc6211497a4a93a51866c234ed3e40'
+let spotifyCleintSecret = 'b2bcec9b2d0047b5b83df0d2ee04e688'
+let spotifyAccessToken = `BQD0O5fkAZX4SiKqD9qORIf2SHBQ87XQwHR9Ai6zWmTBOzprOpnx9BiaW8_OjyAmdI3sFuLp0G5-7TzPr32MqZYvUCLtpto6Y4-vStNvse-8bkjJsXLJADdE78uHqo5OJn1shjIH280`
+let base64Spotify = btoa(`${spotifyClientId}:${spotifyCleintSecret}`)
 
 router.get(`/ping`, ctx => {
     ctx.body = "pong"
@@ -353,7 +359,7 @@ const downloadAudio = async (urls, taskKey, format) => {
                 .audioBitrate((audioFormats[format] && audioFormats[format].audioBitrate) || 128)
                 .save(`${downloadDirectory}/${url.title}.${audioFormats[format] ? format : 'mp3'}`)
                 .on('progress', p => {
-                    console.log('ffmpeg progress: ', p)
+                    console.log(`ffmpeg progress for ${url.title}: `, p)
                 })
                 .on('end', () => {
                     console.log('done')
@@ -390,46 +396,112 @@ const downloadAudio = async (urls, taskKey, format) => {
 
 }
 
-
-// const testFolder = './downloads/'
-
-// // id3 node 
-// fs.readdir(testFolder, (err, files) => {
-//     files.forEach(file => {
-//         console.log(file)
-//         const fileWithoutExt = (file.split('.').slice(0, -1).join('.'))
-
-//         var options = {
-//             uri: `https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=crop&w=200&q=80`,
-//         }
-
-//         rp(options)
-//             .then(function (imageBuffer) {
-//                 console.log('got')
-//                 const data = {
-//                     artist: file,
-//                     title: fileWithoutExt,
-//                     APIC: `${testFolder}/a.jpg`
-//                 }
-//                 NodeID3.update(data, `${testFolder}/${file}`, function (err, buffer) {
-//                     if (err) {
-//                         console.log(11, err)
-//                     } else {
-//                         console.log('done')
-//                     }
-//                     NodeID3.read(`${testFolder}/${file}`, function (err, tags) {
-//                         console.log(111, err)
-//                         console.log(111, tags)
-//                     })
-//                 })
-//             })
-//             .catch(function (err) {
-//                 // API call failed...
-//             });
+const titleFilters = ['lyrics', 'lyric', 'by', 'video', 'official', 'hd', 'dirty', 'with', 'lyrics', 'feat', 'original', 'remix',
+    'www', 'com', 'mp3', 'audio', 'remixed', 'mix', 'full', 'version', 'music', 'hq', 'uploaded', 'explicit', '(', ')', ',', '_', '-', '.']
 
 
-//     })
-// })
+const setMetaInfo = (folder, trackName) => {
+    return fs.readdir(folder, (err, files) => {
+
+        const metaPromises = files.map(file => {
+
+            // let clearedFileTitle = file.replace(/\s{2,}/g, ' ').split('.').slice(0, -1).join('.').toLowerCase()
+
+            let clearedFileTitle = file.toLowerCase()
+
+            titleFilters.forEach(f => {
+                clearedFileTitle = clearedFileTitle.replace(f, '')
+            })
+            clearedFileTitle = clearedFileTitle.replace(/\s{2,}/g, ' ')
+            console.log(clearedFileTitle)
+            return getMetaInfo(clearedFileTitle)
+                .then(response => {
+                    if (response.tracks.items.length === 0) {
+                        return true
+                    }
+
+                    const firstTrackItem = response.tracks.items[0]
+
+                    const options = {
+                        uri: firstTrackItem.album.images[0].url,
+                        encoding: null
+                    }
+
+                    return rp(options)
+                        .then(body => {
+                            console.log('got body')
+                            const data = {
+                                artist: firstTrackItem.album.artists[0].name,
+                                album: firstTrackItem.album.name,
+                                title: clearedFileTitle,
+                                APIC: body
+                            }
+                            NodeID3.update(data, `${folder}/${file}`, function (err, buffer) {
+                                if (err) {
+                                    console.log(11, err)
+                                    return err
+                                }
+                                return true
+                            })
+                        })
+
+
+                })
+
+        })
+
+        return Promise.all(metaPromises)
+            .then(response => {
+                console.log('done')
+            })
+            .catch(err => {
+                console.log(err)
+            })
+
+    })
+}
+
+
+const getMetaInfo = trackName => {
+    const options = {
+        uri: `https://api.spotify.com/v1/search?q=${trackName}&type=track&limit=5`,
+        headers: {
+            'Authorization': `Bearer ${spotifyAccessToken}`
+        },
+        json: true
+    }
+
+    return rp(options)
+        .then(response => response)
+        .catch(err => {
+            if (err && err.statusCode === 401) {
+                return getSpotifyToken()
+                    .then(() => getMetaInfo(trackName))
+            }
+        })
+}
+
+const getSpotifyToken = () => {
+    const options = {
+        method: 'POST',
+        uri: `https://accounts.spotify.com/api/token`,
+        form: {
+            'grant_type': 'client_credentials'
+        },
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Authorization': `Basic ${base64Spotify}`
+        },
+        json: true
+    }
+    return rp(options)
+        .then(response => {
+            spotifyAccessToken = response.access_token
+        })
+        .catch(err => {
+            console.log('spotify auth error: ', err)
+        })
+}
 
 
 app.listen(3003, () => {
