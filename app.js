@@ -18,6 +18,47 @@ const router = new KoaRouter()
 app.use(bodyParser())
 app.use(router.routes()).use(router.allowedMethods())
 
+const { PubSub } = require('@google-cloud/pubsub')
+
+const pubsub = new PubSub('ytdl-playlist-239115')
+
+const topicName = 'projects/ytdl-playlist-239115/topics/download_tasks'
+
+// function getTopic(cb) {
+//     pubsub.createTopic(topicName, (err, topic) => {
+//         if (err && err.code === 6) {
+//             cb(null, pubsub.topic(topicName))
+//             return
+//         }
+//         cb(err, topic)
+//     })
+// }
+
+// getTopic((err, topic) => {
+
+//     if (err) {
+//         console.log(11, err)
+//         return
+//     }
+
+//     topic.publish(Buffer.from('hiii'), (err) => {
+//         if (err) {
+//             console.error('Error occurred while queuing background task', err);
+//         } else {
+//             console.info('sent to queue')
+//         }
+//     })
+
+// })
+
+// pubsub.topic(topicName).publish(Buffer.from(JSON.stringify({ key: 'value' })), (err) => {
+//     if (err) {
+//         console.error('Error occurred while queuing background task', err);
+//     } else {
+//         console.info('sent to queue')
+//     }
+// })
+
 const queue = {}
 
 router.get(`/ping`, ctx => {
@@ -60,7 +101,7 @@ router.post(`/task`, ctx => {
         filter: format => {
             return format.container === 'm4a' && !format.encoding;
         }
-    })// Write audio to file since ffmpeg supports only one input stream.
+    })
         .pipe(fs.createWriteStream(audioOutput))
         .on('info', (info) => {
             console.log(info)
@@ -100,87 +141,173 @@ router.post(`/task`, ctx => {
 
 router.post(`/tasks`, ctx => {
 
-    const { urls = [], format } = ctx.request.body
+    const { urls = [], format, type } = ctx.request.body
 
-    if (!urls || !urls.length)
-        return ctx.body = { err: true, msg: 'illegal url' }
+    // if (type !== 'video' || type !== 'audio') {
+    //     ctx.body = { err: true, msg: 'invalid type' }
+    //     ctx.status = 422
+    //     return
+    // }
+
+    if (!urls || !urls.length) {
+        ctx.body = { err: true, msg: 'illegal url' }
+        ctx.status = 422
+        return
+    }
+
+    if (format === '') {
+        ctx.body = { err: true, msg: 'invalid format' }
+        ctx.status = 422
+        return
+    }
 
     const taskKey = `${Math.floor(Math.random() * 1e15)}_${(new Date().getTime())}`
 
-    // downloadVideo(urls[0], taskKey, format)
+    const task = {
+        taskKey,
+        urls,
+        format,
+        type
+    }
 
-    queue[taskKey] = { status: 'initialized', progress: 0 }
+    pubsub.topic(topicName).publish(Buffer.from(JSON.stringify(task)), (err) => {
+        if (err) {
+            console.error('Error occurred while queuing background task', err);
+        } else {
+            console.info('sent to queue')
+        }
+    })
 
-    downloadAudio(urls, taskKey, format)
+    // downloadVideo(urls, taskKey, format)
+
+    // queue[taskKey] = { status: 'initialized', progress: 0 }
+
+    // downloadAudio(urls, taskKey, format)
 
     return ctx.body = { taskId: taskKey, status: queue[taskKey] }
 })
 
-const downloadVideo = (url, taskKey, format) => {
+const downloadVideo = async (urls, taskKey, format) => {
 
     const videoFormats = {
         '360p': {
-            itag: 134,
+            itag: '134',
             audioEncoding: 'aac'
         },
         '480p': {
-            itag: 135,
+            itag: '135',
             audioEncoding: null
         },
         '720p': {
-            itag: 136,
+            itag: '136',
             audioEncoding: null
         },
         '1080p': {
-            itag: 137,
+            itag: '137',
             audioEncoding: null
         }
     }
 
-    console.log((videoFormats[format]), url)
+    console.log((videoFormats[format]), urls)
 
     let downloadDirectory = './downloads'
 
-    const audioOutput = path.resolve(__dirname, `sound_${taskKey}.m4a`)
-    const mainOutput = path.resolve(__dirname, `output_${taskKey}.mp4`)
-
-    const audio = youtubedl(url, [`--format=m4a/webm`])
-        .pipe(fs.createWriteStream(audioOutput))
-    audio.on('end', () => {
-        console.log('ended dl')
-        ffmpeg()
-            .input(youtubedl(url, [`--format=${(videoFormats[format] && videoFormats[format].itag) || 135}`, '--format=bestvideo']))
-            .videoCodec('copy')
-            .input(audioOutput)
-            .audioCodec('copy')
-            .save(mainOutput)
-            .on('error', console.error)
-            .on('progress', progress => {
-                process.stdout.cursorTo(0);
-                process.stdout.clearLine(1);
-                process.stdout.write(progress.timemark);
-                // console.log(progress)
-            }).on('end', () => {
-                console.log('ended ffmpeg')
-                fs.unlink(audioOutput, err => {
-                    if (err) console.error(err);
-                    else console.log('\nfinished downloading');
-                    queue[taskKey] = { status: 'finished' }
-                    console.log(queue)
-                })
+    if (urls.length > 1) {
+        await new Promise((resolve, reject) => {
+            fs.mkdir(`./downloads/${taskKey}`, (err) => {
+                if (err) {
+                    console.log('error creating folder: ', taskKey, err)
+                    reject(err)
+                } else {
+                    console.log('folder: ', taskKey, ' createded successfully')
+                    downloadDirectory = `./downloads/${taskKey}`
+                    resolve()
+                }
             })
+        })
+    }
+    const vidFormat = videoFormats[format] && videoFormats[format].itag || 135
+
+    const videoListDownloads = urls.map((url, i) => {
+
+        const audioOutput = `${downloadDirectory}/${url.title}.m4a`
+        return new Promise((resolve, reject) => {
+
+            ytdl(url.link, {
+                filter: format => {
+                    return format.container === 'm4a' && !format.encoding;
+                }
+            })
+                .pipe(fs.createWriteStream(audioOutput))
+                .on('info', (info) => {
+                    console.log(info)
+                })
+                .on('finish', () => {
+                    console.log('pipe finished')
+                    queue[taskKey] = { status: 'download_complete' }
+                    console.log(queue)
+                    ffmpeg()
+                        .input(
+                            ytdl(url.link, {
+                                filter: format => {
+                                    return format.itag === vidFormat
+                                }
+                            })
+                        )
+                        .videoCodec('copy')
+                        .input(audioOutput)
+                        .audioCodec('copy')
+                        .save(`${downloadDirectory}/${url.title}.mp4`)
+                        .on('error', console.error)
+                        .on('progress', progress => {
+                            process.stdout.cursorTo(0)
+                            process.stdout.clearLine(1)
+                            process.stdout.write(progress.timemark)
+                            // console.log(progress)
+                        }).on('end', () => {
+                            fs.unlink(audioOutput, err => {
+                                if (err) {
+                                    console.error(err)
+                                    reject(err)
+                                }
+                                else {
+                                    console.log('\nfinished downloading')
+                                    queue[taskKey] = { status: 'pending', progress: queue[taskKey].progress + 1 }
+                                    resolve()
+                                }
+                            })
+                        })
+                })
+
+        })
     })
 
-    // const video = youtubedl(url, [`--format=${(videoFormats[format] && videoFormats[format].itag) || 135}`, '--format=bestvideo'])
 
-    // fs.mkdir(`./downloads/${taskKey}`, (err) => {
-    //     if (err) {
-    //         console.log('error creating folder: ', taskKey, err)
-    //     } else {
-    //         console.log('folder: ', taskKey, ' createded successfully')
-    //     }
+    Promise.all(videoListDownloads)
+        .then(() => {
 
-    // })
+            if (urls.length === 1) {
+                queue[taskKey] = { status: 'completed', progress: 100, downloadLink: downloadDirectory }
+            } else {
+                zipFolder(downloadDirectory, `${downloadDirectory}.zip`, function (err) {
+                    if (err) {
+                        console.log('error creating zip', err);
+                    } else {
+                        console.log('created zip successfully!');
+                        exec(`rm -Rf ${downloadDirectory}`, function (error) {
+                            if (error) {
+                                console.log('error deleting directory: ', error)
+                            } else {
+                                console.log('deleted directory successfully!')
+                                queue[taskKey] = { status: 'completed', progress: 100, downloadLink: `${downloadDirectory}.zip` }
+                            }
+                        })
+                    }
+                })
+            }
+
+
+        })
 
 }
 
@@ -257,52 +384,52 @@ const downloadAudio = async (urls, taskKey, format) => {
                         })
                     }
                 })
-
             }
+
         })
 
 }
 
 
-const testFolder = './downloads/'
+// const testFolder = './downloads/'
 
-// id3 node 
-fs.readdir(testFolder, (err, files) => {
-    files.forEach(file => {
-        console.log(file)
-        const fileWithoutExt = (file.split('.').slice(0, -1).join('.'))
+// // id3 node 
+// fs.readdir(testFolder, (err, files) => {
+//     files.forEach(file => {
+//         console.log(file)
+//         const fileWithoutExt = (file.split('.').slice(0, -1).join('.'))
 
-        var options = {
-            uri: `https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=crop&w=200&q=80`,
-        }
+//         var options = {
+//             uri: `https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=crop&w=200&q=80`,
+//         }
 
-        rp(options)
-            .then(function (imageBuffer) {
-                console.log('got')
-                const data = {
-                    artist: file,
-                    title: fileWithoutExt,
-                    APIC: `${testFolder}/a.jpg`
-                }
-                NodeID3.update(data, `${testFolder}/${file}`, function (err, buffer) {
-                    if (err) {
-                        console.log(11, err)
-                    } else {
-                        console.log('done')
-                    }
-                    NodeID3.read(`${testFolder}/${file}`, function (err, tags) {
-                        console.log(111, err)
-                        console.log(111, tags)
-                    })
-                })
-            })
-            .catch(function (err) {
-                // API call failed...
-            });
+//         rp(options)
+//             .then(function (imageBuffer) {
+//                 console.log('got')
+//                 const data = {
+//                     artist: file,
+//                     title: fileWithoutExt,
+//                     APIC: `${testFolder}/a.jpg`
+//                 }
+//                 NodeID3.update(data, `${testFolder}/${file}`, function (err, buffer) {
+//                     if (err) {
+//                         console.log(11, err)
+//                     } else {
+//                         console.log('done')
+//                     }
+//                     NodeID3.read(`${testFolder}/${file}`, function (err, tags) {
+//                         console.log(111, err)
+//                         console.log(111, tags)
+//                     })
+//                 })
+//             })
+//             .catch(function (err) {
+//                 // API call failed...
+//             });
 
 
-    })
-})
+//     })
+// })
 
 
 app.listen(3003, () => {
