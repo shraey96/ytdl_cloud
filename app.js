@@ -25,41 +25,6 @@ const pubsub = new PubSub('ytdl-playlist-239115')
 
 const topicName = 'projects/ytdl-playlist-239115/topics/download_tasks'
 
-// function getTopic(cb) {
-//     pubsub.createTopic(topicName, (err, topic) => {
-//         if (err && err.code === 6) {
-//             cb(null, pubsub.topic(topicName))
-//             return
-//         }
-//         cb(err, topic)
-//     })
-// }
-
-// getTopic((err, topic) => {
-
-//     if (err) {
-//         console.log(11, err)
-//         return
-//     }
-
-//     topic.publish(Buffer.from('hiii'), (err) => {
-//         if (err) {
-//             console.error('Error occurred while queuing background task', err);
-//         } else {
-//             console.info('sent to queue')
-//         }
-//     })
-
-// })
-
-// pubsub.topic(topicName).publish(Buffer.from(JSON.stringify({ key: 'value' })), (err) => {
-//     if (err) {
-//         console.error('Error occurred while queuing background task', err);
-//     } else {
-//         console.info('sent to queue')
-//     }
-// })
-
 const queue = {}
 
 let spotifyClientId = '28bc6211497a4a93a51866c234ed3e40'
@@ -503,6 +468,40 @@ const getSpotifyToken = () => {
         })
 }
 
+router.get(`/video`, async ctx => {
+
+    const filePath = __dirname + '/test.mp4'
+
+    const stat = fs.statSync(filePath)
+    const fileSize = stat.size
+
+    const range = ctx.headers.range
+
+    if (range) {
+        const parts = range.replace(/bytes=/, "").split("-")
+        const start = parseInt(parts[0], 10)
+        const end = parts[1]
+            ? parseInt(parts[1], 10)
+            : fileSize - 1
+
+        const chunksize = (end - start) + 1
+
+        console.log('parts: ', parts)
+        console.log('start: ', start)
+        console.log('end: ', end)
+        console.log('chunksize: ', chunksize)
+
+        const file = fs.createReadStream(filePath, { start, end })
+        ctx.set('Content-Range', `bytes ${start}-${end}/${fileSize}`)
+        ctx.set('Accept-Ranges', 'bytes')
+        ctx.set('Content-Length', chunksize)
+        ctx.set('Content-Type', 'video/mp4')
+
+        ctx.status = 206
+        return ctx.body = file
+    }
+
+})
 
 app.listen(3003, () => {
     console.log('server running on port 3003')
