@@ -25,41 +25,6 @@ const pubsub = new PubSub('ytdl-playlist-239115')
 
 const topicName = 'projects/ytdl-playlist-239115/topics/download_tasks'
 
-// function getTopic(cb) {
-//     pubsub.createTopic(topicName, (err, topic) => {
-//         if (err && err.code === 6) {
-//             cb(null, pubsub.topic(topicName))
-//             return
-//         }
-//         cb(err, topic)
-//     })
-// }
-
-// getTopic((err, topic) => {
-
-//     if (err) {
-//         console.log(11, err)
-//         return
-//     }
-
-//     topic.publish(Buffer.from('hiii'), (err) => {
-//         if (err) {
-//             console.error('Error occurred while queuing background task', err);
-//         } else {
-//             console.info('sent to queue')
-//         }
-//     })
-
-// })
-
-// pubsub.topic(topicName).publish(Buffer.from(JSON.stringify({ key: 'value' })), (err) => {
-//     if (err) {
-//         console.error('Error occurred while queuing background task', err);
-//     } else {
-//         console.info('sent to queue')
-//     }
-// })
-
 const queue = {}
 
 let spotifyClientId = '28bc6211497a4a93a51866c234ed3e40'
@@ -149,11 +114,15 @@ router.post(`/tasks`, ctx => {
 
     const { urls = [], format, type } = ctx.request.body
 
-    // if (type !== 'video' || type !== 'audio') {
-    //     ctx.body = { err: true, msg: 'invalid type' }
-    //     ctx.status = 422
-    //     return
-    // }
+    const types = ['video', 'audio']
+
+    const formats = ['mp3', 'm4a', 'webm', '360p', '480p', '720p', '1080p']
+
+    if (!types.includes(type)) {
+        ctx.body = { err: true, msg: 'invalid type' }
+        ctx.status = 422
+        return
+    }
 
     if (!urls || !urls.length) {
         ctx.body = { err: true, msg: 'illegal url' }
@@ -161,7 +130,7 @@ router.post(`/tasks`, ctx => {
         return
     }
 
-    if (format === '') {
+    if (format === '' || !formats.includes(format)) {
         ctx.body = { err: true, msg: 'invalid format' }
         ctx.status = 422
         return
@@ -183,12 +152,6 @@ router.post(`/tasks`, ctx => {
             console.info('sent to queue')
         }
     })
-
-    // downloadVideo(urls, taskKey, format)
-
-    // queue[taskKey] = { status: 'initialized', progress: 0 }
-
-    // downloadAudio(urls, taskKey, format)
 
     return ctx.body = { taskId: taskKey, status: queue[taskKey] }
 })
