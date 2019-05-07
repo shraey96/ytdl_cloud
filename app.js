@@ -232,6 +232,7 @@ const downloadVideo = async (urls, taskKey, format) => {
             })
         })
     }
+
     const vidFormat = videoFormats[format] && videoFormats[format].itag || 135
 
     const videoListDownloads = urls.map((url, i) => {
