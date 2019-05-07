@@ -18,13 +18,8 @@ const messageHandler = message => {
 
     console.log(`Received message ${message.id}:`)
     console.log(`\tData: ${message.data}`)
-    // console.log(`\tAttributes: ${message.attributes}`)
 
     const data = (JSON.parse(message.data))
-
-    // downloadVideo(data.urls, data.taskKey, data.format)
-
-    // downloadAudio(data.urls, data.taskKey, data.format)
     exec(`youtube-dl --rm-cache-dir`, error => {
         if (error) {
             console.log('cache cleared failed', error)
@@ -33,7 +28,6 @@ const messageHandler = message => {
             downloadVideoCLI(data.urls, data.taskKey, data.format)
         }
     })
-    // downloadVideoCLI(data.urls, data.taskKey, data.format)
 
     message.ack()
 }
@@ -88,26 +82,9 @@ const downloadVideoCLI = async (urls, taskKey, format) => {
         })
     }
 
-
+    // -o ${__dirname}/${downloadDirectory}/%(${url.title})s.%(mp4)s
     const cliYTPromises = urls.map(url => {
-        return new Promise((resolve, reject) => {
-            // -o ${__dirname}/${downloadDirectory}/%(${url.title})s.%(mp4)s
-            // const ytdlQuery = `youtube-dl -f ${vidFormat}/bestvideo+140/bestaudio ${url.link}`
-            const ytdlQuery = `youtube-dl -f ${vidFormat}+140/bestaudio ${url.link}`
-
-            const childProc = exec(ytdlQuery, (error, stdout, stderr) => {
-                if (error) {
-                    console.log('@@@ download failed: ', error)
-                    childProc.kill()
-                    reject(error)
-                } else {
-                    console.log('@@@ download success')
-                    childProc.kill()
-                    resolve()
-                }
-            })
-
-        })
+        return downloadViaCLI(url.link, 0, vidFormat)
     })
 
     Promise.all(cliYTPromises)
@@ -117,6 +94,33 @@ const downloadVideoCLI = async (urls, taskKey, format) => {
         .catch(err => {
             console.log(`@@@ ERROR @@@: `, err)
         })
+}
+
+
+const downloadViaCLI = (link, type = 0, vidFormat) => {
+    const bestQuality = `youtube-dl -f bestvideo+bestaudio ${link}`
+    const requestedQuality = `youtube-dl -f ${vidFormat}+140 ${link}`
+    const desiredQuality = type === 0 ? requestedQuality : bestQuality
+
+
+    return new Promise((resolve, reject) => {
+        const childProc = exec(desiredQuality, (error, stdout, stderr) => {
+            if (error) {
+                if (error && stderr.includes('ERROR')) {
+                    exec(`youtube-dl --rm-cache-dir`, async () => {
+                        await downloadViaCLI(link, 1)
+                    })
+                    return
+                }
+                childProc.kill()
+                reject(error)
+            } else {
+                childProc.kill()
+                resolve()
+            }
+        })
+    })
+
 }
 
 
